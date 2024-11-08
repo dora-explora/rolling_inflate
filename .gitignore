@@ -31,7 +31,10 @@
 *.out
 *.app
 
-
 # Added by cargo
 
 /target
+
+# Added by me
+.vscode/launch.json
+*.pdb

@@ -24,9 +24,13 @@ fn read_bits(mut cursor: u64, buffer_length: usize, mut file: &mut File, mut eof
     return bits;
 }
 
+fn deflate_block() {
+
+}
+
 fn main() {
     // let path = &env::args().collect::<Vec<_>>()[1]; // set filepath to first arg
-    let path = "hello.txt.gz";
+    let path = "test.txt.gz";
     let mut file = File::open(path) // open file
         .expect("File could not be opened successfully");
     let eof = false; // true if encountered the end of the file
@@ -81,4 +85,21 @@ fn main() {
         _ = read_bytes(cursor, 2, &mut file, eof);
         // uhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh ._.
     }
+
+    bits = read_bits(cursor, 5, &mut file, eof);
+    let bfinal = bits.remove(0);
+    let btypea = bits.remove(0);
+    let btypeb = bits.remove(0);
+    println!("bfinal = {}", bfinal);
+    match (btypea, btypeb) {
+        (false, false) => println!("block has type 0b00: uncompressed"),
+        (false, true) => println!("block has type 0b01: static huffman compressed"),
+        (true, false) => println!("block has type 0b10: dynamic huffman compressed"),
+        (true, true) => panic!("block has type 0b11: reserved (error)")
+    }
+
+    // let nlen_bytes = bits.split_off(16).into_vec();
+    // let len_bytes = bits.into_vec();
+    // println!("{:b}", len_bytes[0])
+    // println!(" len: {len:b}\nnlen: {nlen:b}");
 }

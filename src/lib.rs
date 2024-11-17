@@ -2,9 +2,9 @@ use bitvec::prelude::*;
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
 
-fn read_bytes(mut cursor: u64, buffer_length: usize, mut file: &mut File, mut eof: bool) -> (u64, Vec<u8>) {
+fn read_bytes(mut cursor: u64, buffer_length: usize, mut fileref: &mut File, mut eof: bool) -> (u64, Vec<u8>) {
     let mut buffer = vec![0u8; buffer_length];
-    let n = file.read(&mut buffer).expect("File could not be read successfully"); // reads part of file into buffer
+    let n = fileref.read(&mut buffer).expect("File could not be read successfully"); // reads part of file into buffer
     cursor += n as u64;
     // println!("\nbytes have been read:\ncursor: {cursor}\nn: {n}\nbuffer_length: {buffer_length}");
     if n != buffer_length {
@@ -13,9 +13,9 @@ fn read_bytes(mut cursor: u64, buffer_length: usize, mut file: &mut File, mut eo
     (cursor, buffer)
 }
 
-fn read_bits(mut cursor: u64, buffer_length: usize, mut file: &mut File, mut eof: bool) -> (u64, BitVec<u8, Lsb0>) {
+fn read_bits(mut cursor: u64, buffer_length: usize, mut fileref: &mut File, mut eof: bool) -> (u64, BitVec<u8, Lsb0>) {
     let mut buffer = vec![0u8; buffer_length];
-    let n  = file.read(&mut buffer).expect("File could not be read successfully"); // reads part of file into buffer
+    let n  = fileref.read(&mut buffer).expect("File could not be read successfully"); // reads part of file into buffer
     cursor += n as u64;
     // println!("\nbits have been read:\ncursor: {cursor}\nn: {n}\nbuffer_length: {buffer_length}");
     if n != buffer_length {
@@ -42,8 +42,14 @@ fn print_bytes(bytes: &Vec<u8>) {
     println!();
 }
 
-fn deflate_block() {
-
+fn inflate_uncompressed(mut cursor: u64, fileref: &mut File, eof: bool) -> (u64, Vec<u8>) {
+    // inflate uncompressed block
+    let mut bits: BitVec<u8, Lsb0> = BitVec::new();
+    (cursor, bits) = read_bits(cursor, 4, fileref, eof);
+    bits.split_off(16).into_vec();
+    let len_bytes = bits.into_vec();
+    let len: u16 = (len_bytes[1] as u16) << 8 | len_bytes[0] as u16;
+    read_bytes(cursor, len as usize, fileref, eof)
 }
 
 pub fn run(path: &str) {
@@ -72,6 +78,15 @@ pub fn run(path: &str) {
     println!("fcomment = {fcomment}\nfname = {fname}\nfextra = {fextra}\nfhcrc = {fhcrc}\nftext = {ftext}");
 
     (cursor, _) = read_bytes(cursor, 6, &mut file, eof); // yeah i dont know what to do with these bytes ._.
+
+    let _ = file.seek(SeekFrom::End(-4)); // this is bad!!!!!!!!!!!!!!!!
+    (_, buffer) = read_bytes(cursor, 4, &mut file, eof);
+    let _ = file.seek(SeekFrom::Start(cursor)); // also bad!!!!!!!!!! errors should be handled
+    print_bytes(&buffer);
+    let isize: u32 = u32::from_le_bytes(buffer.as_slice().try_into().unwrap());
+    println!("isize = {}", isize);
+    // file.set_len(isize as u64); // THIS IS EXTREMELY BAD AND NEEDS TO BE FIXED LATER ON!!!!!!!!!!!!!
+    // THE ISIZE VALUE IS % 2^32, WHICH MAY RESULT IN EOF ERRORS FOR INPUT FILES >4 GiB IN SIZE!!!!!
 
     let mut name: String;
     let mut comment: String;
@@ -106,30 +121,16 @@ pub fn run(path: &str) {
         // uhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh ._.
     }
 
-    // read header of first member
+    // read header of first block
     (cursor, bits) = read_bits(cursor, 1, &mut file, eof);
-    let bfinal = bits.remove(0);
-    let btypea = bits.remove(0);
-    let btypeb = bits.remove(0);
+    let bfinal = bits[0];
+    let btypea = bits[1];
+    let btypeb = bits[2];
     println!("bfinal = {}", bfinal);
     match (btypea, btypeb) { // find block type
-        (false, false) => println!("block has type 0b00: uncompressed"),
+        (false, false) => (cursor, output) = inflate_uncompressed(cursor, &mut file, eof),
         (false, true) => println!("block has type 0b01: static huffman compressed"),
         (true, false) => println!("block has type 0b10: dynamic huffman compressed"),
         (true, true) => panic!("block has type 0b11: reserved (error)")
     }
-
-    let _ = file.seek(SeekFrom::End(-4)); // this is bad!!!!!!!!!!!!!!!!
-    (_, buffer) = read_bytes(cursor, 4, &mut file, eof);
-    let _ = file.seek(SeekFrom::Start(cursor));
-    print_bytes(&buffer);
-    let isize: u32 = u32::from_le_bytes(buffer.as_slice().try_into().unwrap());
-
-    // decode uncompressed block
-    (cursor, bits) = read_bits(cursor, 4, &mut file, eof);
-    bits.split_off(16).into_vec();
-    let len_bytes = bits.into_vec();
-    let len: u16 = (len_bytes[1] as u16) << 8 | len_bytes[0] as u16;
-    (cursor, output) = read_bytes(cursor, len as usize, &mut file, eof);
-    println!("len: {len}");
 }

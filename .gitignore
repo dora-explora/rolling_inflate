@@ -38,3 +38,4 @@
 # Added by me
 .vscode/launch.json
 *.pdb
+/.idea/*.xml

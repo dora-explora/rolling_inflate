@@ -1,6 +1,7 @@
 use bitvec::prelude::*;
 use std::fs::File;
-use std::io::{Read, Seek, SeekFrom};
+use std::io::{Read, Seek, SeekFrom, Write};
+use flate2::write::DeflateDecoder;
 
 fn read_bytes(mut cursor: u64, buffer_length: usize, mut fileref: &mut File, eof: &mut bool) -> (u64, Vec<u8>) {
     let mut buffer = vec![0u8; buffer_length];
@@ -58,10 +59,22 @@ fn inflate_uncompressed(mut cursor: u64, fileref: &mut File, eof: &mut bool) -> 
     return read_bytes(cursor, len as usize, fileref, eof);
 }
 
-fn inflate_static(mut cursor: u64, fileref: &mut File, eof: bool) -> (u64, Vec<u8>) {
+fn inflate_static(mut cursor: u64, fileref: &mut File, eof: &mut bool) -> (u64, Vec<u8>) {
     let mut output: Vec<u8> = Vec::new();
     // code and stuff
     return (cursor, output);
+}
+
+fn inflate(bufferref: &Vec<u8>) -> Vec<u8> {
+    let mut deflater = DeflateDecoder::new(Vec::new());
+    match deflater.write_all(bufferref) {
+        Ok(ok) => ok,
+        Err(error) => panic!("Error attempting to decode a block: {error}"),
+    };
+    match deflater.finish() {
+        Ok(out) => out,
+        Err(error) => panic!("Error decoding a block: {error}")
+    }
 }
 
 pub fn run(path: &str) {
@@ -96,8 +109,6 @@ pub fn run(path: &str) {
     let _ = file.seek(SeekFrom::Start(cursor)); // also bad!!!!!!!!!! errors should be handled
     let isize: u32 = u32::from_le_bytes(buffer.as_slice().try_into().unwrap());
     println!("isize = {}", isize);
-    // file.set_len(isize as u64); // THIS IS EXTREMELY BAD AND NEEDS TO BE FIXED LATER ON!!!!!!!!!!!!!
-    // THE ISIZE VALUE IS % 2^32, WHICH MAY RESULT IN EOF ERRORS FOR INPUT FILES >4 GiB IN SIZE!!!!!
 
     let mut name: String;
     let mut comment: String;
@@ -132,24 +143,24 @@ pub fn run(path: &str) {
         // uhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh ._.
     }
 
-    // read header of first block
-    (cursor, bits) = read_bits(cursor, 1, &mut file, &mut eof);
-    let bfinal = bits[0];
-    let btypea = bits[1];
-    let btypeb = bits[2];
-    println!("bfinal = {}", bfinal);
-    match (btypea, btypeb) { // find block type
-        (false, false) => (cursor, output) = inflate_uncompressed(cursor, &mut file, &mut eof),
-        (false, true) => println!("block has type 0b01: static huffman compressed"),
-        (true, false) => println!("block has type 0b10: dynamic huffman compressed"),
-        (true, true) => panic!("block has type 0b11: reserved (error)")
-    }
-    cursor = append_bits(cursor, 3, &mut file, &mut eof, &mut bits);
-    let stuff = bits.split_off(3).into_vec();
-    print_bytes(&(stuff));
-    for byte in stuff {
-        if byte > 48 {
-            println!("{:08b}", byte - 48);
-        }
-    }
+    // // read header of first block
+    // (cursor, bits) = read_bits(cursor, 1, &mut file, &mut eof);
+    // let bfinal = bits[0];
+    // let btypea = bits[1];
+    // let btypeb = bits[2];
+    // println!("bfinal = {}", bfinal);
+    // match (btypea, btypeb) { // find block type
+    //     (false, false) => (cursor, output) = inflate_uncompressed(cursor, &mut file, &mut eof),
+    //     (false, true) => println!("block has type 0b01: static huffman compressed"),
+    //     (true, false) => println!("block has type 0b10: dynamic huffman compressed"),
+    //     (true, true) => panic!("block has type 0b11: reserved (error)")
+    // }
+    // cursor = append_bits(cursor, 3, &mut file, &mut eof, &mut bits);
+    // let stuff = bits.split_off(3).into_vec();
+    // print_bytes(&(stuff));
+    // for byte in stuff {
+    //     if byte > 48 {
+    //         println!("{:08b}", byte - 48);
+    //     }
+    // }
 }

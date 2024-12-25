@@ -59,13 +59,13 @@ fn print_bytes(bytes: &Vec<u8>) {
 //     return read_bytes(cursor, len as usize, fileref, eof);
 // }
 
-fn inflate(bufferref: &Vec<u8>) -> Vec<u8> {
-    let mut deflater = DeflateDecoder::new(Vec::new());
-    match deflater.write_all(bufferref) {
+fn inflate_block(bufferref: &Vec<u8>) -> Vec<u8> {
+    let mut inflater = DeflateDecoder::new(Vec::new());
+    match inflater.write_all(bufferref) {
         Ok(ok) => ok,
         Err(error) => panic!("Error attempting to decode a block: {error}"),
     };
-    match deflater.finish() {
+    match inflater.finish() {
         Ok(out) => out,
         Err(error) => panic!("Error decoding a block: {error}")
     }
@@ -78,7 +78,6 @@ pub fn run(path: &str) {
     let mut cursor: u64 = 0;
     let mut bytes: Vec<u8>;
     let mut bits: BitVec<u8, Lsb0>;
-    let mut output: Vec<u8> = Vec::new();
 
     // read gzip header
     (cursor, bytes) = read_bytes(cursor, 3, &mut file, &mut eof);
@@ -158,7 +157,7 @@ pub fn run(path: &str) {
     //     }
     // }
 
-    (cursor, bytes) = read_bytes(cursor, file.metadata().expect("Error accesing metadata").len() as usize - 8, &mut file, &mut eof);
-    print_bytes(&inflate(&bytes));
+    (cursor, bytes) = read_bytes(cursor, 259, &mut file, &mut eof);
+    println!("{}", String::from_utf8(inflate_block(&bytes)).expect("Data could not be converted to text"));
 
 }

@@ -49,21 +49,15 @@ fn print_bytes(bytes: &Vec<u8>) {
     println!();
 }
 
-fn inflate_uncompressed(mut cursor: u64, fileref: &mut File, eof: &mut bool) -> (u64, Vec<u8>) {
-    // inflate uncompressed block
-    let mut bits: BitVec<u8, Lsb0> = BitVec::new();
-    (cursor, bits) = read_bits(cursor, 4, fileref, eof);
-    bits.split_off(16).into_vec();
-    let len_bytes = bits.into_vec();
-    let len: u16 = (len_bytes[1] as u16) << 8 | len_bytes[0] as u16;
-    return read_bytes(cursor, len as usize, fileref, eof);
-}
-
-fn inflate_static(mut cursor: u64, fileref: &mut File, eof: &mut bool) -> (u64, Vec<u8>) {
-    let mut output: Vec<u8> = Vec::new();
-    // code and stuff
-    return (cursor, output);
-}
+// fn inflate_uncompressed(mut cursor: u64, fileref: &mut File, eof: &mut bool) -> (u64, Vec<u8>) {
+//     // inflate uncompressed block
+//     let mut bits: BitVec<u8, Lsb0> = BitVec::new();
+//     (cursor, bits) = read_bits(cursor, 4, fileref, eof);
+//     bits.split_off(16).into_vec();
+//     let len_bytes = bits.into_vec();
+//     let len: u16 = (len_bytes[1] as u16) << 8 | len_bytes[0] as u16;
+//     return read_bytes(cursor, len as usize, fileref, eof);
+// }
 
 fn inflate(bufferref: &Vec<u8>) -> Vec<u8> {
     let mut deflater = DeflateDecoder::new(Vec::new());
@@ -82,15 +76,15 @@ pub fn run(path: &str) {
         .expect("File could not be opened successfully");
     let mut eof = false; // true if encountered the end of the file
     let mut cursor: u64 = 0;
-    let mut buffer: Vec<u8>;
+    let mut bytes: Vec<u8>;
     let mut bits: BitVec<u8, Lsb0>;
     let mut output: Vec<u8> = Vec::new();
 
     // read gzip header
-    (cursor, buffer) = read_bytes(cursor, 3, &mut file, &mut eof);
-    if buffer[0] != 0x1F || buffer[1] != 0x8B {
+    (cursor, bytes) = read_bytes(cursor, 3, &mut file, &mut eof);
+    if bytes[0] != 0x1F || bytes[1] != 0x8B {
         panic!("File is not a gzip file")
-    } else if buffer[2] != 8 {
+    } else if bytes[2] != 8 {
         panic!("File is not compressed with deflate")
     }
 
@@ -105,35 +99,35 @@ pub fn run(path: &str) {
     (cursor, _) = read_bytes(cursor, 6, &mut file, &mut eof); // yeah i dont know what to do with these bytes ._.
 
     let _ = file.seek(SeekFrom::End(-4)); // this is bad!!!!!!!!!!!!!!!!
-    (_, buffer) = read_bytes(cursor, 4, &mut file, &mut eof);
+    (_, bytes) = read_bytes(cursor, 4, &mut file, &mut eof);
     let _ = file.seek(SeekFrom::Start(cursor)); // also bad!!!!!!!!!! errors should be handled
-    let isize: u32 = u32::from_le_bytes(buffer.as_slice().try_into().unwrap());
+    let isize: u32 = u32::from_le_bytes(bytes.as_slice().try_into().unwrap());
     println!("isize = {}", isize);
 
     let mut name: String;
     let mut comment: String;
     if fextra {
-        (cursor, buffer) = read_bytes(cursor, 2, &mut file, &mut eof);
-        let xlen: u16 = buffer[1] as u16 | ((buffer[2] as u16) << 8);
+        (cursor, bytes) = read_bytes(cursor, 2, &mut file, &mut eof);
+        let xlen: u16 = bytes[1] as u16 | ((bytes[2] as u16) << 8);
         let _ = read_bytes(cursor, xlen as usize, &mut file, &mut eof);
         // i dont know what to do with these either ._.
     }
     if fname {
         let mut name_bytes: Vec<u8> = Vec::new();
-        (cursor, buffer) = read_bytes(cursor, 1, &mut file, &mut eof);
-        while buffer[0] != 0x00 {
-            name_bytes.push(buffer[0]);
-            (cursor, buffer) = read_bytes(cursor, 1, &mut file, &mut eof);
+        (cursor, bytes) = read_bytes(cursor, 1, &mut file, &mut eof);
+        while bytes[0] != 0x00 {
+            name_bytes.push(bytes[0]);
+            (cursor, bytes) = read_bytes(cursor, 1, &mut file, &mut eof);
         }
         name = String::from_utf8(name_bytes).unwrap();
         println!("name: {}", name);
     }
     if fcomment {
         let mut comment_bytes: Vec<u8> = Vec::new();
-        (cursor, buffer) = read_bytes(cursor, 1, &mut file, &mut eof);
-        while buffer[0] != 0x00 {
-            comment_bytes.push(buffer[0]);
-            (cursor, buffer) = read_bytes(cursor, 1, &mut file, &mut eof);
+        (cursor, bytes) = read_bytes(cursor, 1, &mut file, &mut eof);
+        while bytes[0] != 0x00 {
+            comment_bytes.push(bytes[0]);
+            (cursor, bytes) = read_bytes(cursor, 1, &mut file, &mut eof);
         }
         comment = String::from_utf8(comment_bytes).unwrap();
         println!("comment: {}", comment);
@@ -163,4 +157,8 @@ pub fn run(path: &str) {
     //         println!("{:08b}", byte - 48);
     //     }
     // }
+
+    (cursor, bytes) = read_bytes(cursor, file.metadata().expect("Error accesing metadata").len() as usize - 8, &mut file, &mut eof);
+    print_bytes(&inflate(&bytes));
+
 }

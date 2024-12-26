@@ -45,11 +45,86 @@ fn first_byte(bits: &BitVec<u8>) -> u8{
 
 
 fn scan_uncompressed(mut cursor: &mut u64, fileref: &mut File, eof: &mut bool) {
-    *cursor -= 1;
-    let _ = (*fileref).seek(SeekFrom::Start(*cursor));
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
     let len_bytes = read_bits(cursor, 2, fileref, eof).into_vec();
     let len: u16 = (len_bytes[1] as u16) << 8 | len_bytes[0] as u16;
     *cursor += len as u64;
+    let _ = (*fileref).seek(SeekFrom::Start(*cursor));
 }
 
 fn scan_static_literal(bits: &mut BitVec<u8, Lsb0>, mut eob: &mut bool) {

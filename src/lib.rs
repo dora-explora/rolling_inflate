@@ -39,8 +39,7 @@ fn remove_front_bits(n: u16, bits: &mut BitVec<u8, Lsb0>) {
 
 fn scan_static_literal(bits: &mut BitVec<u8, Lsb0>) {
     let n: u16;
-    bits.force_align();
-    let byte: u8 = bits.as_raw_slice()[0];
+    let byte: u8 = bits[..8].load_le();
     println!("byte = {:08b}", byte);
     match byte {
         ..0b00110000 => n = 7,

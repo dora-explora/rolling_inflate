@@ -31,16 +31,38 @@ fn append_bits(cursor: u64, buffer_length: usize, fileref: &mut File, eof: &mut 
     return output.0;
 }
 
+fn remove_front_bits(n: u16, bits: &mut BitVec<u8, Lsb0>) {
+    for _ in 0..n {
+        bits.remove(0);
+    }
+}
+
+fn scan_static_literal(bits: &mut BitVec<u8, Lsb0>) {
+    let n: u16;
+    bits.force_align();
+    let byte: u8 = bits.as_raw_slice()[0];
+    println!("byte = {:08b}", byte);
+    match byte {
+        ..0b00110000 => n = 7,
+        ..0b11001000 => n = 8,
+        _ => n = 9,
+    }
+    println!("n = {n}");
+    remove_front_bits(n, bits);
+}
+
 fn print_bits(bits: &BitVec<u8, Lsb0>) {
     for i in 0..bits.len() {
-        if i % 8 == 0{
-            print!("|{:b}", bits[i] as u8);
+        if i % 8 == 0 && i != 0{
+            print!(".{:b}", bits[i] as u8);
         } else {
             print!("{:b}", bits[i] as u8);
         }
     }
     println!();
 }
+
+
 
 fn print_bytes(bytes: &Vec<u8>) {
     for byte in bytes {
@@ -136,28 +158,27 @@ pub fn run(path: &str) {
         // uhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh ._.
     }
 
-    // // read header of first block
-    // (cursor, bits) = read_bits(cursor, 1, &mut file, &mut eof);
-    // let bfinal = bits[0];
-    // let btypea = bits[1];
-    // let btypeb = bits[2];
-    // println!("bfinal = {}", bfinal);
-    // match (btypea, btypeb) { // find block type
-    //     (false, false) => (cursor, output) = inflate_uncompressed(cursor, &mut file, &mut eof),
-    //     (false, true) => println!("block has type 0b01: static huffman compressed"),
-    //     (true, false) => println!("block has type 0b10: dynamic huffman compressed"),
-    //     (true, true) => panic!("block has type 0b11: reserved (error)")
-    // }
-    // cursor = append_bits(cursor, 3, &mut file, &mut eof, &mut bits);
-    // let stuff = bits.split_off(3).into_vec();
-    // print_bytes(&(stuff));
-    // for byte in stuff {
-    //     if byte > 48 {
-    //         println!("{:08b}", byte - 48);
-    //     }
-    // }
+    // read header of first block
+    (cursor, bits) = read_bits(cursor, 1, &mut file, &mut eof);
+    let bfinal = bits[0];
+    let btypea = bits[1];
+    let btypeb = bits[2];
+    println!("bfinal = {}", bfinal);
+    match (btypea, btypeb) { // find block type
+        (false, false) => println!("block has type 0b00: uncompressed"),
+        (false, true) => println!("block has type 0b01: static huffman compressed"),
+        (true, false) => println!("block has type 0b10: dynamic huffman compressed"),
+        (true, true) => panic!("block has type 0b11: reserved (error)")
+    }
+    remove_front_bits(3, &mut bits);
 
-    (cursor, bytes) = read_bytes(cursor, 259, &mut file, &mut eof);
-    println!("{}", String::from_utf8(inflate_block(&bytes)).expect("Data could not be converted to text"));
+    while bits.len() < 9 { cursor = append_bits(cursor, 1, &mut file, &mut eof, &mut bits); }
+    print_bits(&bits);
+    scan_static_literal(&mut bits);
+    while bits.len() < 9 { cursor = append_bits(cursor, 1, &mut file, &mut eof, &mut bits); }
+    print_bits(&bits);
+
+    // (cursor, bytes) = read_bytes(cursor, 259, &mut file, &mut eof);
+    // println!("{}", String::from_utf8(inflate_block(&bytes)).expect("Data could not be converted to text"));
 
 }

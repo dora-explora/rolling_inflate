@@ -50,12 +50,27 @@ fn scan_uncompressed(mut cursor: &mut u64, fileref: &mut File, eof: &mut bool) {
     let _ = (*fileref).seek(SeekFrom::Start(*cursor));
 }
 
+fn static_extra_bits(code: u8) -> u8 {
+    println!("length-distance pair detected");
+    match code {
+        ..=9 => 7,
+        ..=12 => 7 + 1,
+        ..=16 => 7 + 2,
+        ..=20 => 7 + 3,
+        ..=24 => 7 + 4,
+        ..=28 => 7 + 5,
+        29..=29 => 7,
+        30.. => panic!("what the even fuck")
+    }
+}
+
 fn scan_static_literal(bits: &mut BitVec<u8, Lsb0>, mut eob: &mut bool) {
     let mut n: u8 = 7;
     let byte: u8 = first_byte(bits);
+    println!("byte: {byte:08b}");
     match byte {
         ..0b00000010 => *eob = true,
-        ..0b00110000 => n = 7,
+        ..0b00110000 => n = static_extra_bits(byte >> 1),
         ..0b11001000 => n = 8,
         _ => n = 9,
     }
@@ -66,7 +81,7 @@ fn scan_static(cursor: &mut u64, fileref: &mut File, eof: &mut bool) {
     let mut eob: bool = false; // end of block
     let mut bits: BitVec<u8, Lsb0> = BitVec::new();
     while !eob {
-        while bits.len() < 9 { append_bits(cursor, 1, fileref, eof, &mut bits); }
+        while bits.len() < 12 { append_bits(cursor, 1, fileref, eof, &mut bits); }
         scan_static_literal(&mut bits, &mut eob);
     }
 }
@@ -154,9 +169,10 @@ pub fn run(path: &str) {
     let fcomment = bits[4]; // flag set if comment is present before the compressed blocks
     println!("fcomment = {fcomment}\nfname = {fname}\nfextra = {fextra}\nfhcrc = {fhcrc}\nftext = {ftext}");
 
-    _ = read_bytes(&mut cursor, 6, &mut file, &mut eof); // yeah i dont know what to do with these bytes ._.
+    cursor += 6;
+    let _ = file.seek(SeekFrom::Start(cursor)); // this is bad!!!!!!!!!!!!!!!!
 
-    let _ = file.seek(SeekFrom::End(-4)); // this is bad!!!!!!!!!!!!!!!!
+    let _ = file.seek(SeekFrom::End(-4)); // still bad!!!!!!!!!!!!!!!!
     bytes = read_bytes(&mut cursor, 4, &mut file, &mut eof);
     cursor -= 4;
     let _ = file.seek(SeekFrom::Start(cursor)); // also bad!!!!!!!!!! errors should be handled

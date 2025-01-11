@@ -3,134 +3,175 @@ use std::fs::File;
 use std::io::{Read, Seek, SeekFrom, Write};
 use flate2::write::DeflateDecoder;
 
-fn read_bytes(mut cursor: &mut u64, buffer_length: usize, mut fileref: &mut File, eof: &mut bool) -> Vec<u8> {
+fn read_bytes(mut cursorref: &mut u64, buffer_length: usize, mut fileref: &mut File, eofref: &mut bool) -> Vec<u8> {
     let mut buffer = vec![0u8; buffer_length];
     let n = fileref.read(&mut buffer).expect("File could not be read successfully"); // reads part of file into buffer
-    *cursor += n as u64;
+    *cursorref += n as u64;
     // println!("\nbytes have been read:\ncursor: {cursor}\nn: {n}\nbuffer_length: {buffer_length}");
     if n != buffer_length {
-        *eof = true; // this would only happen if the entire buffer is not filled
+        *eofref = true; // this would only happen if the entire buffer is not filled
     }
     return buffer;
 }
 
-fn read_bits(mut cursor: &mut u64, buffer_length: usize, mut fileref: &mut File, eof: &mut bool) -> BitVec<u8, Lsb0> {
+fn read_bits(mut cursorref: &mut u64, buffer_length: usize, mut fileref: &mut File, eofref: &mut bool) -> BitVec<u8, Lsb0> {
     let mut buffer = vec![0u8; buffer_length];
     let n  = fileref.read(&mut buffer).expect("File could not be read successfully"); // reads part of file into buffer
-    *cursor += n as u64;
+    *cursorref += n as u64;
     // println!("\nbits have been read:\ncursor: {cursor}\nn: {n}\nbuffer_length: {buffer_length}");
     if n != buffer_length {
-        *eof = true; // this would only happen if the entire buffer is not filled
+        *eofref = true; // this would only happen if the entire buffer is not filled
     }
     return BitVec::from_slice(&buffer);
 }
 
-fn append_bits(cursor: &mut u64, buffer_length: usize, fileref: &mut File, eof: &mut bool, mut bits: &mut BitVec<u8>) {
-    bits.append(&mut read_bits(cursor, buffer_length, fileref, eof));
+fn append_bits(cursorref: &mut u64, buffer_length: usize, fileref: &mut File, eofref: &mut bool, mut bitsref: &mut BitVec<u8>) {
+    bitsref.append(&mut read_bits(cursorref, buffer_length, fileref, eofref));
 }
 
-fn remove_front_bits(n: u8, bits: &mut BitVec<u8>) {
+fn remove_front_bits(n: u8, bitsref: &mut BitVec<u8>) {
+    println!("removing {n} bits");
     for _ in 0..n {
-        bits.remove(0);
+        bitsref.remove(0);
     }
 }
 
-fn first_byte(bits: &BitVec<u8>) -> u8{
+fn first_byte(bitsref: &BitVec<u8>) -> u8{
     let mut byte: u8 = 0;
     for i in 0..8 {
-        byte |= (bits[7-i] as u8) << i;
+        byte |= (bitsref[7-i] as u8) << i;
     }
     return byte;
 }
 
-fn scan_uncompressed(mut cursor: &mut u64, fileref: &mut File, eof: &mut bool) {
-    let len_bytes = read_bits(cursor, 2, fileref, eof).into_vec();
+fn scan_uncompressed(mut cursorref: &mut u64, fileref: &mut File, eofref: &mut bool) {
+    let len_bytes = read_bits(cursorref, 2, fileref, eofref).into_vec();
     let len: u16 = (len_bytes[1] as u16) << 8 | len_bytes[0] as u16;
-    *cursor += len as u64;
-    let _ = (*fileref).seek(SeekFrom::Start(*cursor));
+    *cursorref += len as u64;
+    let _ = (*fileref).seek(SeekFrom::Start(*cursorref));
 }
 
-fn static_extra_bits(code: u8) -> u8 {
-    println!("length-distance pair detected");
+fn static_code_to_literal(code: u8) -> u16 {
     match code {
-        ..=9 => 7,
-        ..=12 => 7 + 1,
-        ..=16 => 7 + 2,
-        ..=20 => 7 + 3,
-        ..=24 => 7 + 4,
-        ..=28 => 7 + 5,
-        29..=29 => 7,
-        30.. => panic!("what the even fuck")
+        ..=0b00101111 => (code >> 1) as u16 + 256,
+        ..=0b10111111 => code as u16 - 48,
+        ..=0b11000101 => code as u16 - 196 + 280,
+        ..=0b11000111 => panic!("what the fuckest (illegal deflate literal 286/287)"),
+        _ => todo!()
     }
 }
 
-fn scan_static_literal(bits: &mut BitVec<u8, Lsb0>, mut eob: &mut bool) {
+fn static_length_distance_pair(bitsref: &mut BitVec<u8, Lsb0>) -> u8 {
+    println!("length-distance pair detected");
+    print_bits(bitsref);
+    remove_front_bits(length_extra_bits(static_code_to_literal(first_byte(bitsref) >> 1)), bitsref); // remove length bits
+    remove_front_bits(length_extra_bits(static_code_to_literal(first_byte(bitsref) >> 3)), bitsref); // remove distance bits
+    return 0;
+}
+
+fn length_extra_bits(literal: u16) -> u8 {
+    match literal {
+        ..=256 => panic!("what the fuck"),
+        ..=264 => 7 + 0,
+        ..=268 => 7 + 1,
+        ..=272 => 7 + 2,
+        ..=276 => 7 + 3,
+        ..=279 => 7 + 4,
+        ..=280 => 8 + 4,
+        ..=284 => 8 + 5,
+        ..=285 => 8 + 0,
+        286.. => panic!("what the even fuck")
+    }
+}
+
+fn distance_extra_bits(literal: u16) -> u8 {
+    match literal {
+        ..=3  => 5 + 0,
+        ..=5  => 5 + 1,
+        ..=7  => 5 + 2,
+        ..=9  => 5 + 3,
+        ..=11 => 5 + 4,
+        ..=13 => 5 + 5,
+        ..=15 => 5 + 6,
+        ..=17 => 5 + 7,
+        ..=19 => 5 + 8,
+        ..=21 => 5 + 9,
+        ..=23 => 5 + 10,
+        ..=25 => 5 + 11,
+        ..=27 => 5 + 12,
+        ..=29 => 5 + 13,
+        30.. => panic!("what the evener fuck")
+    }
+}
+
+fn scan_static_code(bitsref: &mut BitVec<u8, Lsb0>, mut eob: &mut bool) {
     let mut n: u8 = 7;
-    let byte: u8 = first_byte(bits);
+    let byte: u8 = first_byte(bitsref);
     println!("byte: {byte:08b}");
     match byte {
-        ..0b00000010 => *eob = true,
-        ..0b00110000 => n = static_extra_bits(byte >> 1),
-        ..0b11001000 => n = 8,
+        ..=0b00000001 => *eob = true,
+        ..=0b00101111 => n = static_length_distance_pair(bitsref),
+        ..=0b10111111 => n = 8,
+        ..=0b11000111 => n = static_length_distance_pair(bitsref),
         _ => n = 9,
     }
-    remove_front_bits(n, bits);
+    remove_front_bits(n, bitsref);
 }
 
-fn scan_static(cursor: &mut u64, fileref: &mut File, eof: &mut bool) {
+fn scan_static(cursorref: &mut u64, fileref: &mut File, eofref: &mut bool) {
     let mut eob: bool = false; // end of block
     let mut bits: BitVec<u8, Lsb0> = BitVec::new();
     while !eob {
-        while bits.len() < 12 { append_bits(cursor, 1, fileref, eof, &mut bits); }
-        scan_static_literal(&mut bits, &mut eob);
+        while bits.len() < 30 { append_bits(cursorref, 1, fileref, eofref, &mut bits); }
+        scan_static_code(&mut bits, &mut eob);
     }
 }
 
-fn scan(mut blocks: &mut Vec<u64>, cursor: &mut u64, fileref: &mut File, eof: &mut bool) {
+fn scan(mut blocks: &mut Vec<u64>, cursorref: &mut u64, fileref: &mut File, eofref: &mut bool) {
     let mut bfinal: bool = false;
     let mut btypea: bool;
     let mut btypeb: bool;
     while !bfinal {
-        let bits = read_bits(cursor, 1, fileref, eof);
+        let bits = read_bits(cursorref, 1, fileref, eofref);
         bfinal = bits[0];
         btypea = bits[1];
         btypeb = bits[2];
         match (btypea, btypeb) { // find block type
-            (false, false) => scan_uncompressed(cursor, fileref, eof),
-            (false, true) => scan_static(cursor, fileref, eof),
+            (false, false) => scan_uncompressed(cursorref, fileref, eofref),
+            (false, true) => scan_static(cursorref, fileref, eofref),
             (true, false) => println!("block has type 0b10: dynamic huffman compressed"),
             (true, true) => panic!("block has type 0b11: reserved (error)")
         }
-        blocks.push(cursor.clone());
+        blocks.push(cursorref.clone());
     }
 }
 
-fn print_bits(bits: &BitVec<u8, Lsb0>) {
-    for i in 0..bits.len() {
+fn print_bits(bitsref: &BitVec<u8, Lsb0>) {
+    for i in 0..bitsref.len() {
         if i % 8 == 0 && i != 0{
-            print!(".{:b}", bits[i] as u8);
+            print!(".{:b}", bitsref[i] as u8);
         } else {
-            print!("{:b}", bits[i] as u8);
+            print!("{:b}", bitsref[i] as u8);
         }
     }
     println!();
 }
 
-fn print_bytes(bytes: &Vec<u8>) {
-    for byte in bytes {
+fn print_bytes(bytesref: &Vec<u8>) {
+    for byte in bytesref {
         print!("|{:08b}", byte);
     }
     println!();
 }
 
-// fn inflate_uncompressed(mut cursor: u64, fileref: &mut File, eof: &mut bool) -> (u64, Vec<u8>) {
+// fn inflate_uncompressed(mut cursorref: u64, fileref: &mut File, eofref: &mut bool) -> (u64, Vec<u8>) {
 //     // inflate uncompressed block
 //     let mut bits: BitVec<u8, Lsb0> = BitVec::new();
-//     bits = read_bits(cursor, 4, fileref, eof);
+//     bits = read_bits(cursorref, 4, fileref, eofref);
 //     bits.split_off(16).into_vec();
 //     let len_bytes = bits.into_vec();
 //     let len: u16 = (len_bytes[1] as u16) << 8 | len_bytes[0] as u16;
-//     return read_bytes(cursor, len as usize, fileref, eof);
+//     return read_bytes(cursorref, len as usize, fileref, eofref);
 // }
 
 fn inflate_block(bufferref: &Vec<u8>) -> Vec<u8> {
@@ -208,7 +249,7 @@ pub fn run(path: &str) {
         println!("comment: {}", comment);
     }
     if fhcrc {
-        let _bytes = read_bytes(&mut cursor, 2, &mut file, &mut eof);
+        let _ = read_bytes(&mut cursor, 2, &mut file, &mut eof);
         // uhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh ._.
     }
 

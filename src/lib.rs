@@ -44,7 +44,8 @@ fn first_byte(bitsref: &BitVec<u8>) -> u8{
     return byte;
 }
 
-fn scan_uncompressed(mut cursorref: &mut u64, fileref: &mut File, eofref: &mut bool) {
+fn scan_uncompressed_block(mut cursorref: &mut u64, fileref: &mut File, eofref: &mut bool) {
+    println!("uncompressed block detected");
     let len_bytes = read_bits(cursorref, 2, fileref, eofref).into_vec();
     let len: u16 = (len_bytes[1] as u16) << 8 | len_bytes[0] as u16;
     *cursorref += len as u64;
@@ -55,7 +56,7 @@ fn static_code_to_literal(code: u8) -> u16 {
     match code {
         ..=0b00101111 => (code >> 1) as u16 + 256,
         ..=0b10111111 => code as u16 - 48,
-        ..=0b11000101 => code as u16 - 196 + 280,
+        ..=0b11000101 => code as u16 + 280 - 196,
         ..=0b11000111 => panic!("what the fuckest (illegal deflate literal 286/287)"),
         _ => todo!()
     }
@@ -64,42 +65,48 @@ fn static_code_to_literal(code: u8) -> u16 {
 fn static_length_distance_pair(bitsref: &mut BitVec<u8, Lsb0>) -> u8 {
     println!("length-distance pair detected");
     print_bits(bitsref);
-    remove_front_bits(length_extra_bits(static_code_to_literal(first_byte(bitsref) >> 1)), bitsref); // remove length bits
-    remove_front_bits(length_extra_bits(static_code_to_literal(first_byte(bitsref) >> 3)), bitsref); // remove distance bits
+    let mut literal: u16 = static_code_to_literal(first_byte(bitsref));
+    let a = length_extra_bits(literal); // find lengths extra bits
+    match literal {
+        ..=279 => remove_front_bits(7 + a, bitsref),
+        280.. => remove_front_bits(8 + a, bitsref),
+    }
+    literal = (first_byte(bitsref) >> 3) as u16;
+    let b = distance_extra_bits(literal); // find distance extra bits
+    remove_front_bits(5 + b, bitsref);
     return 0;
 }
 
 fn length_extra_bits(literal: u16) -> u8 {
     match literal {
         ..=256 => panic!("what the fuck"),
-        ..=264 => 7 + 0,
-        ..=268 => 7 + 1,
-        ..=272 => 7 + 2,
-        ..=276 => 7 + 3,
-        ..=279 => 7 + 4,
-        ..=280 => 8 + 4,
-        ..=284 => 8 + 5,
-        ..=285 => 8 + 0,
+        ..=264 => 0,
+        ..=268 => 1,
+        ..=272 => 2,
+        ..=276 => 3,
+        ..=280 => 4,
+        ..=284 => 5,
+        ..=285 => 0,
         286.. => panic!("what the even fuck")
     }
 }
 
 fn distance_extra_bits(literal: u16) -> u8 {
     match literal {
-        ..=3  => 5 + 0,
-        ..=5  => 5 + 1,
-        ..=7  => 5 + 2,
-        ..=9  => 5 + 3,
-        ..=11 => 5 + 4,
-        ..=13 => 5 + 5,
-        ..=15 => 5 + 6,
-        ..=17 => 5 + 7,
-        ..=19 => 5 + 8,
-        ..=21 => 5 + 9,
-        ..=23 => 5 + 10,
-        ..=25 => 5 + 11,
-        ..=27 => 5 + 12,
-        ..=29 => 5 + 13,
+        ..=3  => 0,
+        ..=5  => 1,
+        ..=7  => 2,
+        ..=9  => 3,
+        ..=11 => 4,
+        ..=13 => 5,
+        ..=15 => 6,
+        ..=17 => 7,
+        ..=19 => 8,
+        ..=21 => 9,
+        ..=23 => 10,
+        ..=25 => 11,
+        ..=27 => 12,
+        ..=29 => 13,
         30.. => panic!("what the evener fuck")
     }
 }
@@ -118,7 +125,8 @@ fn scan_static_code(bitsref: &mut BitVec<u8, Lsb0>, mut eob: &mut bool) {
     remove_front_bits(n, bitsref);
 }
 
-fn scan_static(cursorref: &mut u64, fileref: &mut File, eofref: &mut bool) {
+fn scan_static_block(cursorref: &mut u64, fileref: &mut File, eofref: &mut bool) {
+    println!("static block detected");
     let mut eob: bool = false; // end of block
     let mut bits: BitVec<u8, Lsb0> = BitVec::new();
     while !eob {
@@ -137,8 +145,8 @@ fn scan(mut blocks: &mut Vec<u64>, cursorref: &mut u64, fileref: &mut File, eofr
         btypea = bits[1];
         btypeb = bits[2];
         match (btypea, btypeb) { // find block type
-            (false, false) => scan_uncompressed(cursorref, fileref, eofref),
-            (false, true) => scan_static(cursorref, fileref, eofref),
+            (false, false) => scan_uncompressed_block(cursorref, fileref, eofref),
+            (false, true) => scan_static_block(cursorref, fileref, eofref),
             (true, false) => println!("block has type 0b10: dynamic huffman compressed"),
             (true, true) => panic!("block has type 0b11: reserved (error)")
         }
